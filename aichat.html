@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chat </title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            margin: 50px;
+        }
+        textarea {
+            width: 80%;
+            height: 100px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        #response {
+            margin-top: 20px;
+            font-size: 18px;
+            white-space: pre-wrap;
+            text-align: left;
+            width: 80%;
+            margin: 0 auto;
+            border: 1px solid #ddd;
+            padding: 10px;
+            min-height: 50px;
+            background: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>AI Chat (With Pause)</h1>
+    <textarea id="prompt" placeholder="Enter your question..."></textarea><br>
+    <button onclick="queryOllama()">Ask AI</button>
+    <button onclick="shutUp()">Shut Up</button>
+    <div id="response"></div>
+
+    <script>
+        let controller = null; // To control the fetch request
+
+        async function queryOllama() {
+            const promptText = document.getElementById("prompt").value;
+            const responseDiv = document.getElementById("response");
+            responseDiv.innerHTML = "Thinking...";
+            responseDiv.innerHTML = ""; // Clear previous responses
+
+            // Abort previous request if running
+            if (controller) controller.abort();
+            controller = new AbortController();
+
+            const response = await fetch("http://localhost:11434/api/generate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    model: "tinyllama", // Change to any model
+                    prompt: promptText,
+                    stream: true // Enable streaming
+                }),
+                signal: controller.signal // Attach abort signal
+            }).catch(error => {
+                if (error.name === "AbortError") {
+                    console.log("Request aborted");
+                } else {
+                    console.error("Fetch error:", error);
+                }
+            });
+
+            if (!response || !response.body) return; // Stop if aborted early
+
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder("utf-8");
+
+            let accumulatedText = ""; // Store full response
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break; // End loop if all data is received
+
+                const chunk = decoder.decode(value, { stream: true });
+                try {
+                    const json = JSON.parse(chunk);
+                    if (json.response) {
+                        accumulatedText += json.response;
+                        responseDiv.innerHTML = accumulatedText; // Append text live
+                    }
+                } catch (error) {
+                    console.error("JSON parse error:", error);
+                }
+            }
+        }
+
+        function shutUp() {
+            if (controller) {
+                controller.abort(); // Stop the request
+                controller = null;
+            }
+        }
+    </script>
+
+</body>
+</html>
